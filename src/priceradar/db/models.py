@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
@@ -39,7 +40,14 @@ class Base(DeclarativeBase):
 
 
 class Site(Base):
-    """Takip edilen bir kaynak site."""
+    """Takip edilen bir kaynak site.
+
+    Kazıma yapılandırması (başlangıç URL'leri, CSS seçicileri) burada tutuluyor.
+    Böylece site eklemek için dosya düzenlemek gerekmiyor — API'den de yapılabilir.
+
+    YAML dosyaları tohumlama mekanizması: açılışta veritabanına yazılırlar,
+    ama tek doğruluk kaynağı veritabanıdır.
+    """
 
     __tablename__ = "sites"
 
@@ -49,9 +57,30 @@ class Site(Base):
     base_url: Mapped[str] = mapped_column(String(500))
     adapter: Mapped[str] = mapped_column(String(64), default="css")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    offers: Mapped[list["Offer"]] = relationship(back_populates="site")
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    max_pages: Mapped[int] = mapped_column(Integer, default=3)
+    start_urls: Mapped[list] = mapped_column(JSON, default=list)
+    selectors: Mapped[dict] = mapped_column(JSON, default=dict)
+    pagination: Mapped[dict] = mapped_column(JSON, default=dict)
+    browser: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    # "yaml" = dosyadan geldi, "api" = arayüzden eklendi.
+    # YAML senkronizasyonu api ile eklenenlerin üzerine yazmasın diye gerekli.
+    managed_by: Mapped[str] = mapped_column(String(10), default="yaml")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    # cascade ORM seviyesinde de gerekli: ForeignKey'deki ondelete="CASCADE"
+    # yalnızca veritabanı silmeyi kendisi yaptığında çalışır. ORM'den
+    # session.delete(site) çağrıldığında SQLAlchemy varsayılan olarak
+    # çocukların FK'sini NULL yapmaya çalışır ve NOT NULL kısıtına takılır.
+    offers: Mapped[list["Offer"]] = relationship(
+        back_populates="site", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Site {self.slug}>"
