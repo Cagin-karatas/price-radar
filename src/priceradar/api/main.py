@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import func, select
 
 from .. import __version__
@@ -22,10 +23,12 @@ from ..scheduler import ScrapeManager
 from ..scraping.client import FetchError
 from ..sites_repo import sync_yaml_sites
 from .deps import SessionDep, get_settings
-from .routers import jobs, offers, products, sites
+from .routers import alerts, exports, jobs, offers, products, sites
 from .schemas import HealthOut
 
 logger = logging.getLogger(__name__)
+
+DASHBOARD_HTML = Path(__file__).resolve().parent.parent / "web" / "index.html"
 
 DESCRIPTION = """
 Çok siteli fiyat ve stok takip platformu.
@@ -119,9 +122,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             products=product_count or 0,
         )
 
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    async def dashboard() -> HTMLResponse:
+        """Tek dosyalık pano. Derleme adımı ve CDN bağımlılığı yok."""
+        return HTMLResponse(DASHBOARD_HTML.read_text(encoding="utf-8"))
+
     app.include_router(sites.router)
     app.include_router(products.router)
     app.include_router(offers.router)
+    app.include_router(alerts.router)
+    app.include_router(exports.router)
     app.include_router(jobs.router)
 
     return app

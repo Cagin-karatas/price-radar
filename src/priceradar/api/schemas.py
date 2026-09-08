@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class SiteBase(BaseModel):
@@ -188,3 +188,48 @@ class Page(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class AlertBase(BaseModel):
+    email: str = Field(..., max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    target_price: Decimal | None = Field(None, gt=0, description="Bu fiyatın altına inerse")
+    drop_percent: Decimal | None = Field(
+        None, gt=0, le=99, description="Bu yüzde kadar ucuzlarsa"
+    )
+    active: bool = True
+
+
+class AlertCreate(AlertBase):
+    product_id: int
+
+    @model_validator(mode="after")
+    def require_one_condition(self) -> "AlertCreate":
+        # field_validator varsayılan değerler için çalışmıyor: iki alan da
+        # gönderilmezse hiç kontrol edilmezdi. Model doğrulayıcı her zaman çalışır.
+        if self.target_price is None and self.drop_percent is None:
+            raise ValueError("target_price veya drop_percent'ten en az biri gerekli")
+        return self
+
+
+class AlertUpdate(BaseModel):
+    email: str | None = None
+    target_price: Decimal | None = None
+    drop_percent: Decimal | None = None
+    active: bool | None = None
+
+
+class AlertOut(AlertBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int
+    product_title: str | None = None
+    last_triggered_at: datetime | None
+    created_at: datetime
+
+
+class AlertTestOut(BaseModel):
+    """Alarm e-postasının önizlemesi — SMTP ayarını denemeden görmek için."""
+
+    subject: str
+    html: str

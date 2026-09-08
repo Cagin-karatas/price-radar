@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>price-radar</title>
+<style>
+  /* Proje genelindeki palet: lacivert mürekkep, soğuk açık zemin, pirinç vurgu */
+  :root {
+    --ink: #16212e; --ink-soft: #5a6a7a; --ground: #e9edf1;
+    --surface: #fff; --surface-alt: #f4f6f8; --rule: #c9d2db;
+    --gain: #0b6b5b; --loss: #a63a2e; --brass: #b08d3f;
+    --radius: 3px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+    font-size: 15px; line-height: 1.55;
+  }
+  .num { font-variant-numeric: tabular-nums; }
+  a { color: inherit; }
+  button {
+    font: inherit; color: inherit; cursor: pointer; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: var(--radius); padding: 6px 14px;
+  }
+  button:hover { border-color: var(--ink-soft); }
+  button.primary { background: var(--ink); color: var(--ground); border-color: var(--ink); }
+  button.primary:hover { opacity: .88; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  :focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+  header { background: var(--surface); border-bottom: 1px solid var(--rule); }
+  .shell { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+  .head { display: flex; align-items: center; gap: 16px; min-height: 62px; flex-wrap: wrap; }
+  .wordmark { font-size: 22px; font-weight: 600; letter-spacing: -.02em;
+              display: flex; align-items: baseline; gap: 8px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brass); }
+  .head .spacer { margin-left: auto; }
+
+  .pulse { display: flex; flex-wrap: wrap; gap: 32px; padding: 20px 0;
+           border-bottom: 1px solid var(--rule); }
+  .pulse div { display: flex; flex-direction: column; }
+  .pulse .label { font-size: 13px; color: var(--ink-soft); }
+  .pulse .value { font-size: 22px; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+  .toolbar { display: flex; gap: 10px; align-items: center;
+             padding: 18px 0 14px; flex-wrap: wrap; }
+  input[type=search], select {
+    font: inherit; color: inherit; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: var(--radius); padding: 6px 10px;
+  }
+  input[type=search] { flex: 1 1 240px; max-width: 340px; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--surface);
+          border: 1px solid var(--rule); border-radius: var(--radius); }
+  th { text-align: left; font-size: 13px; font-weight: 500; color: var(--ink-soft);
+       padding: 9px 12px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--rule); }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover td { background: var(--surface-alt); }
+  .right { text-align: right; }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+  .badge { display: inline-block; font-size: 12px; padding: 1px 6px;
+           border: 1px solid var(--rule); border-radius: 2px; color: var(--ink-soft); }
+  .badge.on { color: var(--gain); border-color: var(--gain); }
+  .badge.off { color: var(--loss); border-color: var(--loss); }
+  .spread { color: var(--gain); font-weight: 500; }
+
+  dialog {
+    border: 1px solid var(--rule); border-radius: var(--radius); padding: 0;
+    max-width: 820px; width: calc(100% - 32px); background: var(--surface); color: var(--ink);
+  }
+  dialog::backdrop { background: rgba(22,33,46,.45); }
+  .dlg-head { display: flex; align-items: flex-start; gap: 12px;
+              padding: 18px 22px; border-bottom: 1px solid var(--rule); }
+  .dlg-body { padding: 18px 22px; }
+  .dlg-title { font-size: 18px; font-weight: 600; margin: 0; }
+
+  .chart-legend { display: flex; gap: 14px; flex-wrap: wrap;
+                  font-size: 13px; color: var(--ink-soft); margin-top: 8px; }
+  .swatch { display: inline-block; width: 10px; height: 3px; margin-right: 5px;
+            vertical-align: middle; }
+
+  .state { padding: 44px 20px; text-align: center; color: var(--ink-soft);
+           background: var(--surface); border: 1px solid var(--rule);
+           border-radius: var(--radius); }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+           background: var(--ink); color: var(--ground); padding: 10px 18px;
+           border-radius: var(--radius); font-size: 14px; z-index: 50; }
+  footer { color: var(--ink-soft); font-size: 13px; padding: 26px 0;
+           border-top: 1px solid var(--rule); margin-top: 34px; }
+  @media (max-width: 720px) { .hide-sm { display: none; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="shell head">
+    <span class="wordmark"><span class="dot"></span>price-radar</span>
+    <span class="muted" id="version"></span>
+    <span class="spacer"></span>
+    <button id="btn-scrape" class="primary">Kazımayı başlat</button>
+    <a href="/export/workbook.xlsx"><button>Excel indir</button></a>
+    <a href="/docs" target="_blank"><button>API</button></a>
+  </div>
+</header>
+
+<main class="shell">
+  <div class="pulse" id="pulse"></div>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Ürün ara" aria-label="Ürün ara">
+    <label class="muted">
+      <input type="checkbox" id="only-compared"> Sadece çok siteli ürünler
+    </label>
+    <span class="spacer" style="margin-left:auto"></span>
+    <span class="muted" id="run-info"></span>
+  </div>
+
+  <div id="products"></div>
+
+  <h2 style="font-size:17px;margin:30px 0 12px">Siteler</h2>
+  <div id="sites"></div>
+</main>
+
+<footer class="shell">
+  price-radar · veriler yalnızca bilgilendirme amaçlıdır
+</footer>
+
+<dialog id="detail">
+  <div class="dlg-head">
+    <div>
+      <h2 class="dlg-title" id="d-title"></h2>
+      <div class="muted" id="d-sub"></div>
+    </div>
+    <span style="margin-left:auto"></span>
+    <button onclick="document.getElementById('detail').close()">Kapat</button>
+  </div>
+  <div class="dlg-body" id="d-body"></div>
+</dialog>
+
+<script>
+/* Derleme adımı ve CDN yok: grafik dahil her şey elle çiziliyor.
+   Bir fiyat takip panosu için React + Chart.js getirmek, çözdüğünden
+   fazla sorun yaratırdı (build zinciri, sürüm yönetimi, çevrimdışı çalışma). */
+
+const SERIES_COLORS = ['#0b6b5b', '#a63a2e', '#b08d3f', '#2c5c8a', '#6b4c7a'];
+const $ = (id) => document.getElementById(id);
+
+let products = [];
+
+async function api(path, options) {
+  const response = await fetch(path, options);
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail || `HTTP ${response.status}`);
+  }
+  return response.status === 204 ? null : response.json();
+}
+
+function toast(message, ms = 3200) {
+  const node = document.createElement('div');
+  node.className = 'toast';
+  node.textContent = message;
+  document.body.appendChild(node);
+  setTimeout(() => node.remove(), ms);
+}
+
+function money(value, currency) {
+  if (value === null || value === undefined) return '—';
+  const number = Number(value).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+  return currency ? `${number} ${currency}` : number;
+}
+
+function escapeHtml(text) {
+  return String(text ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+/* --- pano üstü sayaçlar --- */
+
+async function loadHealth() {
+  const health = await api('/health');
+  $('version').textContent = `v${health.version}`;
+
+  const items = [
+    ['Ürün', health.products],
+    ['Etkin site', health.sites_enabled],
+    ['Zamanlayıcı', health.scheduler_running ? 'çalışıyor' : 'kapalı'],
+    ['Veritabanı', health.database],
+  ];
+  $('pulse').innerHTML = items.map(([label, value]) =>
+    `<div><span class="label">${label}</span><span class="value">${escapeHtml(value)}</span></div>`
+  ).join('');
+}
+
+async function loadRuns() {
+  const runs = await api('/runs?limit=1');
+  if (!runs.length) { $('run-info').textContent = 'Henüz kazıma yapılmadı'; return; }
+
+  const run = runs[0];
+  const when = new Date(run.started_at).toLocaleString('tr-TR',
+    { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  $('run-info').textContent =
+    `Son kazıma ${when} · ${run.items_found} ürün · ${run.price_changes} değişim`;
+}
+
+/* --- ürün tablosu --- */
+
+async function loadProducts() {
+  const minOffers = $('only-compared').checked ? 2 : 1;
+  const search = $('search').value.trim();
+  const query = new URLSearchParams({ min_offers: minOffers, limit: 100 });
+  if (search) query.set('search', search);
+
+  products = await api(`/products?${query}`);
+  renderProducts();
+}
+
+function renderProducts() {
+  if (!products.length) {
+    $('products').innerHTML = `<div class="state">
+      Kayıtlı ürün yok. Yukarıdan <strong>Kazımayı başlat</strong> ile ilk toplamayı yap.
+    </div>`;
+    return;
+  }
+
+  const rows = products.map((product) => {
+    const spread = (product.min_price != null && product.max_price != null)
+      ? Number(product.max_price) - Number(product.min_price) : null;
+
+    return `<tr data-id="${product.id}">
+      <td>${escapeHtml(product.title)}
+        ${product.brand ? `<div class="muted">${escapeHtml(product.brand)}</div>` : ''}</td>
+      <td class="right num">${product.offer_count}</td>
+      <td class="right num">${money(product.min_price, product.currency)}</td>
+      <td class="right num hide-sm">${money(product.max_price, product.currency)}</td>
+      <td class="right num">${spread ? `<span class="spread">${money(spread, product.currency)}</span>` : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  $('products').innerHTML = `<table>
+    <thead><tr>
+      <th>Ürün</th><th class="right">Teklif</th><th class="right">En düşük</th>
+      <th class="right hide-sm">En yüksek</th><th class="right">Fark</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+
+  $('products').querySelectorAll('tr[data-id]').forEach((row) => {
+    row.addEventListener('click', () => openDetail(Number(row.dataset.id)));
+  });
+}
+
+/* --- fiyat geçmişi grafiği (elle çizilmiş SVG) --- */
+
+function priceChart(history) {
+  const series = Object.entries(history).filter(([, points]) => points.length);
+  if (!series.length) return '<p class="muted">Henüz fiyat geçmişi yok.</p>';
+
+  const all = series.flatMap(([, points]) =>
+    points.filter((p) => p.price != null).map((p) => ({
+      t: new Date(p.captured_at).getTime(), v: Number(p.price),
+    })));
+  if (all.length < 2) return '<p class="muted">Grafik için en az iki ölçüm gerekiyor.</p>';
+
+  const W = 760, H = 260, PAD = { top: 14, right: 16, bottom: 26, left: 62 };
+  const times = all.map((d) => d.t), values = all.map((d) => d.v);
+  const tMin = Math.min(...times), tMax = Math.max(...times);
+  const vMin = Math.min(...values), vMax = Math.max(...values);
+  // Düz çizgi olduğunda (tek fiyat) sıfıra bölmeyi önle
+  const tSpan = (tMax - tMin) || 1;
+  const pad = (vMax - vMin) * 0.1 || Math.max(vMax * 0.05, 1);
+  const yLo = vMin - pad, yHi = vMax + pad;
+
+  const x = (t) => PAD.left + ((t - tMin) / tSpan) * (W - PAD.left - PAD.right);
+  const y = (v) => H - PAD.bottom - ((v - yLo) / (yHi - yLo)) * (H - PAD.top - PAD.bottom);
+
+  const gridLines = [0, .25, .5, .75, 1].map((ratio) => {
+    const value = yLo + (yHi - yLo) * (1 - ratio);
+    const py = PAD.top + ratio * (H - PAD.top - PAD.bottom);
+    return `<line x1="${PAD.left}" y1="${py}" x2="${W - PAD.right}" y2="${py}"
+              stroke="var(--rule)" stroke-dasharray="2 4"/>
+            <text x="${PAD.left - 8}" y="${py + 4}" text-anchor="end"
+              font-size="11" fill="var(--ink-soft)">${
+                value.toLocaleString('tr-TR', { maximumFractionDigits: 0 })}</text>`;
+  }).join('');
+
+  const paths = series.map(([slug, points], index) => {
+    const color = SERIES_COLORS[index % SERIES_COLORS.length];
+    const valid = points.filter((p) => p.price != null)
+      .sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at));
+    if (valid.length < 2) return { slug, color, svg: '' };
+
+    // Fiyat değişimi kademeli: ölçümler arasında fiyat sabit kalır,
+    // o yüzden basamak çizgisi (step) doğru gösterim, düz interpolasyon değil.
+    let d = '';
+    valid.forEach((point, i) => {
+      const px = x(new Date(point.captured_at).getTime());
+      const py = y(Number(point.price));
+      if (i === 0) { d += `M${px},${py}`; }
+      else { d += ` H${px} V${py}`; }
+    });
+    return { slug, color, svg: `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.8"/>` };
+  });
+
+  const dateLabels = [tMin, tMin + tSpan / 2, tMax].map((t) =>
+    `<text x="${x(t)}" y="${H - 8}" text-anchor="middle" font-size="11"
+       fill="var(--ink-soft)">${new Date(t).toLocaleDateString('tr-TR',
+       { day: '2-digit', month: 'short' })}</text>`).join('');
+
+  const legend = paths.map((p) =>
+    `<span><span class="swatch" style="background:${p.color}"></span>${escapeHtml(p.slug)}</span>`
+  ).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto"
+            role="img" aria-label="Fiyat geçmişi grafiği">
+      ${gridLines}${dateLabels}${paths.map((p) => p.svg).join('')}
+    </svg>
+    <div class="chart-legend">${legend}</div>`;
+}
+
+/* --- ürün detayı --- */
+
+async function openDetail(productId) {
+  const dialog = $('detail');
+  $('d-title').textContent = 'Yükleniyor…';
+  $('d-sub').textContent = '';
+  $('d-body').innerHTML = '';
+  dialog.showModal();
+
+  try {
+    const [product, history] = await Promise.all([
+      api(`/products/${productId}`),
+      api(`/products/${productId}/history`),
+    ]);
+
+    $('d-title').textContent = product.title;
+    $('d-sub').textContent = [product.brand, product.category].filter(Boolean).join(' · ');
+
+    const offerRows = product.offers.map((offer) => `<tr>
+      <td><a href="${escapeHtml(offer.url)}" target="_blank" rel="noreferrer">
+            ${escapeHtml(offer.raw_title)}</a>
+        <div class="muted">${escapeHtml(offer.site_slug)}</div></td>
+      <td class="right num">${money(offer.last_price, offer.last_currency)}</td>
+      <td class="right"><span class="badge ${
+        offer.last_availability === 'in_stock' ? 'on'
+        : offer.last_availability === 'out_of_stock' ? 'off' : ''
+      }">${escapeHtml(offer.last_availability)}</span></td>
+    </tr>`).join('');
+
+    $('d-body').innerHTML = `
+      ${priceChart(history)}
+      <h3 style="font-size:15px;margin:22px 0 10px">Teklifler</h3>
+      <table><thead><tr><th>Site</th><th class="right">Fiyat</th>
+        <th class="right">Stok</th></tr></thead><tbody>${offerRows}</tbody></table>
+      <p style="margin-top:16px">
+        <a href="/export/history.xlsx?product_id=${productId}">
+          <button>Bu ürünün geçmişini indir</button></a></p>`;
+  } catch (error) {
+    $('d-title').textContent = 'Yüklenemedi';
+    $('d-body').innerHTML = `<p class="muted">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+/* --- siteler --- */
+
+async function loadSites() {
+  const sites = await api('/sites');
+  if (!sites.length) { $('sites').innerHTML = '<div class="state">Tanımlı site yok.</div>'; return; }
+
+  const rows = sites.map((site) => `<tr>
+    <td>${escapeHtml(site.name)}<div class="muted">${escapeHtml(site.slug)}</div></td>
+    <td class="hide-sm"><span class="badge">${escapeHtml(site.adapter)}</span></td>
+    <td class="hide-sm muted">${escapeHtml(site.managed_by)}</td>
+    <td class="right"><span class="badge ${site.enabled ? 'on' : 'off'}">
+      ${site.enabled ? 'açık' : 'kapalı'}</span></td>
+  </tr>`).join('');
+
+  $('sites').innerHTML = `<table><thead><tr>
+      <th>Site</th><th class="hide-sm">Adaptör</th>
+      <th class="hide-sm">Yönetim</th><th class="right">Durum</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+/* --- kazıma tetikleme --- */
+
+$('btn-scrape').addEventListener('click', async () => {
+  const button = $('btn-scrape');
+  button.disabled = true;
+  button.textContent = 'Başlatılıyor…';
+
+  try {
+    await api('/scrape', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    toast('Kazıma arka planda başladı. Sonuçlar birkaç dakika içinde gelir.');
+
+    // Arka plan işi bitince sayfayı kendiliğinden tazele
+    const poll = setInterval(async () => {
+      await Promise.all([loadHealth(), loadRuns(), loadProducts()]);
+    }, 8000);
+    setTimeout(() => clearInterval(poll), 120000);
+  } catch (error) {
+    toast(`Başlatılamadı: ${error.message}`, 5000);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Kazımayı başlat';
+  }
+});
+
+let searchTimer;
+$('search').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadProducts, 300);  // her tuşta istek atma
+});
+$('only-compared').addEventListener('change', loadProducts);
+
+Promise.all([loadHealth(), loadRuns(), loadProducts(), loadSites()])
+  .catch((error) => toast(`Yüklenemedi: ${error.message}`, 6000));
+</script>
+</body>
+</html>
