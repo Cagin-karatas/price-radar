@@ -7,9 +7,8 @@ otomatik olarak eşleştirir, fiyat geçmişini tutar ve düşüşleri tespit ed
 Siteler → Adaptörler → Normalleştirme → Ürün eşleştirme → PostgreSQL → Rapor/API
 ```
 
-> **Durum: Faz 2 tamamlandı.** Scraping çekirdeği, veri modeli, ürün eşleştirme, CLI,
-> REST API, zamanlanmış işler ve Docker Compose çalışıyor. Dashboard, export ve
-> e-posta bildirimi Faz 3'te.
+> **Durum: tamamlandı.** Scraping çekirdeği, veri modeli, ürün eşleştirme, CLI,
+> REST API, zamanlanmış işler, pano, dışa aktarım, fiyat alarmı ve Docker Compose.
 
 ## Neden bu tasarım
 
@@ -64,6 +63,71 @@ getirisi yok, "neden bu ikisi birleşti?" sorusuna cevap verebilmek daha değerl
    Kapsama ölçütü `Wireless` ↔ `Kablosuz` gibi dil farklarını yakalıyor; 2. adım da
    onun fazla cömert davranmasını engelliyor.
 
+## Pano
+
+`priceradar api` çalıştırıp `http://127.0.0.1:8000` adresini aç. Pano şunları yapar:
+
+- Ürünleri **siteler arası fiyat farkına** göre sıralar — tablonun asıl değeri bu sütun
+- Bir ürüne tıklayınca fiyat geçmişini site bazlı çizgi grafikle gösterir
+- Kazımayı elle tetikler ve iş bitince kendini tazeler
+- Excel/CSV indirme bağlantıları verir
+
+Derleme adımı ve CDN bağımlılığı yok: tek HTML dosyası, sade JavaScript, grafik dahil
+her şey elle çizilmiş SVG. Bir fiyat panosuna React + Chart.js getirmek çözdüğünden
+fazla sorun yaratırdı — build zinciri, sürüm yönetimi, çevrimdışı çalışamama.
+
+Grafik basamak çizgisi (step) kullanıyor, düz interpolasyon değil: ölçümler arasında
+fiyat sabit kalır, iki nokta arasını eğimli çizmek olmayan bir kademeli değişimi
+gösterirdi.
+
+## Dışa aktarım
+
+```bash
+curl -O localhost:8000/export/workbook.xlsx          # üç sayfalı tam dosya
+curl -O localhost:8000/export/products.csv
+curl -O "localhost:8000/export/offers.xlsx?site=teknoshop"
+curl -O "localhost:8000/export/history.csv?product_id=1"
+```
+
+CSV'ler UTF-8 BOM ile yazılıyor — bu olmadan Excel Türkçe karakterleri bozuk açıyor.
+Excel çıktısında başlık dolgusu, donmuş satır, otomatik filtre ve tıklanabilir ürün
+bağlantıları var.
+
+## Fiyat alarmı
+
+```bash
+curl -X POST localhost:8000/alerts -H 'Content-Type: application/json' -d '{
+  "product_id": 1,
+  "email": "ben@ornek.com",
+  "target_price": 9000,
+  "drop_percent": 10
+}'
+```
+
+İki koşul tanımlanabilir: mutlak eşik (`target_price`) ve göreli düşüş (`drop_percent`).
+İkisi de verilirse biri sağlandığında tetiklenir; ikisi de boşsa istek 422 ile reddedilir
+— hiç tetiklenmeyecek bir alarm kaydetmenin anlamı yok.
+
+Bildirimi açmak için:
+
+```bash
+PRICERADAR_ALERTS_ENABLED=true
+PRICERADAR_SMTP_USER=seninadresin@gmail.com
+PRICERADAR_SMTP_PASSWORD=uygulama-sifresi
+PRICERADAR_ALERT_COOLDOWN_HOURS=12
+```
+
+Gmail'de normal hesap şifresi çalışmaz,
+[uygulama şifresi](https://myaccount.google.com/apppasswords) gerekir.
+
+İki tasarım detayı: **soğuma süresi** fiyat eşiğin hemen altında salındığında her
+kazımada e-posta gitmesini engelliyor; **alıcıya göre gruplama** bir kullanıcının beş
+ürünü aynı anda ucuzladığında beş ayrı e-posta yerine tek e-posta gönderiyor. İkisi de
+bildirimlerin kapatılmasını önlemek için.
+
+`GET /alerts/{id}/preview` SMTP'yi hiç denemeden e-posta şablonunun nasıl göründüğünü
+gösterir.
+
 ## REST API
 
 ```bash
@@ -83,6 +147,11 @@ Etkileşimli dokümantasyon `/docs` adresinde (OpenAPI'den otomatik üretiliyor)
 | `GET /offers` | Teklifler; site ve stok durumuna göre filtrelenebilir |
 | `POST /scrape` | Kazımayı hemen tetikle (202 döner, arka planda çalışır) |
 | `GET /scheduler` · `GET /runs` | Zamanlayıcı durumu ve çalıştırma geçmişi |
+| `GET /alerts` · `POST /alerts` | Fiyat alarmı listele / ekle |
+| `GET /alerts/{id}/preview` | Bildirim e-postasının önizlemesi |
+| `GET /export/workbook.xlsx` | Tüm veri, üç sayfalı Excel |
+| `GET /export/{dataset}.{csv\|xlsx}` | products / offers / history |
+| `GET /` | Pano |
 
 Örnek — arayüzden site ekleme:
 
@@ -238,6 +307,10 @@ src/priceradar/
 ├── cli.py
 ├── scheduler.py          # APScheduler işleri, eşzamanlı çalıştırma kilidi
 ├── sites_repo.py         # YAML ↔ veritabanı senkronizasyonu
+├── alerts.py             # alarm değerlendirme, soğuma süresi
+├── reports/export.py     # CSV ve biçimlendirilmiş Excel
+├── notifications/email.py # SMTP bildirimi, alıcıya göre gruplama
+├── web/index.html        # tek dosyalık pano (derleme adımı yok)
 ├── api/
 │   ├── main.py           # FastAPI uygulaması, lifespan, sağlık kontrolü
 │   ├── schemas.py        # Pydantic istek/yanıt modelleri
@@ -253,7 +326,7 @@ src/priceradar/
     └── playwright_adapter.py
 config/sites/             # site tanımları (YAML)
 migrations/               # Alembic göçleri
-tests/                    # 111 test, fixture tabanlı (ağ erişimi gerekmez)
+tests/                    # 145 test, fixture tabanlı (ağ erişimi gerekmez)
 ```
 
 ## Geliştirme
@@ -274,10 +347,10 @@ Veritabanı testleri gerçek async SQLAlchemy ile geçici SQLite üzerinde koşa
 - [x] Background jobs (APScheduler)
 - [x] Alembic ile şema göçleri
 
-**Faz 3 — Arayüz ve bildirim**
-- [ ] Dashboard (fiyat grafiği, siteler arası karşılaştırma)
-- [ ] CSV/Excel export
-- [ ] Fiyat düşünce e-posta bildirimi (`PriceAlert` modeli hazır)
+**Faz 3 — Arayüz ve bildirim** ✅
+- [x] Pano (fiyat grafiği, siteler arası karşılaştırma)
+- [x] CSV/Excel export
+- [x] Fiyat düşünce e-posta bildirimi
 
 **Sonrası**
 - [ ] Kimlik doğrulama (API anahtarı veya JWT)
