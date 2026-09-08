@@ -28,6 +28,7 @@ from .db.session import dispose_db, init_db, session_scope
 from .pipeline import run_collection
 from .scraping.base import available_adapters
 from .scraping.client import AsyncScraperClient
+from .sites_repo import load_enabled_configs, site_to_config, sync_yaml_sites
 
 app = typer.Typer(add_completion=False, help="Çok siteli fiyat ve stok takip platformu.")
 console = Console()
@@ -74,19 +75,43 @@ def init_db_command(verbose: bool = typer.Option(False, "--verbose", "-v")) -> N
 @app.command()
 def sites(
     sites_dir: Path = typer.Option(None, "--sites-dir", help="Site tanımları klasörü"),
+    from_yaml: bool = typer.Option(
+        False, "--from-yaml", help="Veritabanı yerine YAML dosyalarını göster"
+    ),
 ) -> None:
     """Tanımlı siteleri listeler."""
     settings = Settings()
-    configs = load_site_configs(sites_dir or settings.sites_dir)
+
+    if from_yaml:
+        configs = load_site_configs(sites_dir or settings.sites_dir)
+        source = "YAML"
+        managed = {c.slug: "yaml" for c in configs}
+    else:
+        async def _load():
+            await init_db(settings.database_url)
+            async with session_scope() as session:
+                rows = (await session.execute(select(Site).order_by(Site.slug))).scalars().all()
+                data = [(site_to_config(s), s.managed_by) for s in rows]
+            await dispose_db()
+            return data
+
+        loaded = asyncio.run(_load())
+        configs = [c for c, _ in loaded]
+        managed = {c.slug: m for c, m in loaded}
+        source = "veritabanı"
 
     if not configs:
-        console.print("Tanımlı site yok. `config/sites/` altına bir YAML ekle.")
+        console.print(
+            "Tanımlı site yok. `config/sites/` altına YAML ekle "
+            "ve `priceradar scrape` çalıştır."
+        )
         return
 
-    table = Table(header_style="bold cyan")
+    table = Table(title=f"Kaynak: {source}", header_style="bold cyan")
     table.add_column("Slug")
     table.add_column("Ad")
     table.add_column("Adaptör")
+    table.add_column("Yönetim")
     table.add_column("Durum")
     table.add_column("Başlangıç URL")
 
@@ -95,8 +120,9 @@ def sites(
             config.slug,
             config.name,
             config.adapter,
+            managed.get(config.slug, "—"),
             "[green]açık[/]" if config.enabled else "[dim]kapalı[/]",
-            (config.start_urls[0] if config.start_urls else "—")[:58],
+            (config.start_urls[0] if config.start_urls else "—")[:48],
         )
 
     console.print(table)
@@ -109,32 +135,52 @@ def scrape(
     sites_dir: Path = typer.Option(None, "--sites-dir"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Veritabanına yazma, sadece göster"),
     limit: int = typer.Option(None, "--limit", help="Site başına sayfa sınırı"),
+    no_sync: bool = typer.Option(False, "--no-sync", help="YAML senkronizasyonunu atla"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
-    """Siteleri kazır, ürünleri eşleştirir, fiyat değişimlerini kaydeder."""
+    """Siteleri kazır, ürünleri eşleştirir, fiyat değişimlerini kaydeder.
+
+    Site tanımları veritabanından okunur. YAML dosyaları her çalıştırmada
+    veritabanına senkronize edilir (API'den eklenenlere dokunulmaz).
+    """
     _setup_logging(verbose)
     settings = Settings()
+    asyncio.run(_scrape_async(settings, site, sites_dir, dry_run, limit, no_sync))
 
-    configs = load_site_configs(sites_dir or settings.sites_dir)
-    if site:
-        wanted = set(site)
-        configs = [c for c in configs if c.slug in wanted]
-        for config in configs:
-            config.enabled = True  # açıkça istendiyse kapalı olsa da çalıştır
 
-    configs = [c for c in configs if c.enabled]
+async def _scrape_async(
+    settings: Settings,
+    slugs: list[str] | None,
+    sites_dir: Path | None,
+    dry_run: bool,
+    limit: int | None,
+    no_sync: bool,
+) -> None:
+    await init_db(settings.database_url, echo=settings.echo_sql)
+
+    if not no_sync:
+        yaml_configs = load_site_configs(sites_dir or settings.sites_dir)
+        if yaml_configs:
+            async with session_scope() as session:
+                stats = await sync_yaml_sites(session, yaml_configs)
+            if stats["created"] or stats["updated"]:
+                console.print(
+                    f"[dim]YAML senkronizasyonu: {stats['created']} yeni, "
+                    f"{stats['updated']} güncellendi, {stats['skipped']} atlandı[/]"
+                )
+
+    async with session_scope() as session:
+        configs = await load_enabled_configs(session, list(slugs) if slugs else None)
+
     if not configs:
         console.print("[bold red]Çalıştırılacak site yok.[/] `priceradar sites` ile kontrol et.")
+        await dispose_db()
         raise typer.Exit(code=1)
 
     if limit:
         for config in configs:
             config.max_pages = limit
 
-    asyncio.run(_scrape_async(settings, configs, dry_run))
-
-
-async def _scrape_async(settings: Settings, configs, dry_run: bool) -> None:
     console.print(f"[bold]{len(configs)} site kazınıyor…[/]")
 
     if dry_run:
@@ -162,15 +208,16 @@ async def _scrape_async(settings: Settings, configs, dry_run: bool) -> None:
             console.print(f"[dim]… ve {len(items) - 40} ürün daha[/]")
         for slug, message in errors.items():
             console.print(f"[yellow]Hata ({slug}):[/] {message}")
-        return
 
-    await init_db(settings.database_url, echo=settings.echo_sql)
+        await dispose_db()
+        return
 
     async with _build_client(settings) as client:
         async with session_scope() as session:
             result, run = await run_collection(session, configs, client)
 
-    _print_result(result, client)
+        _print_result(result, client)
+
     await dispose_db()
 
 
@@ -414,6 +461,26 @@ def robots(urls: list[str] = typer.Argument(None, help="Kontrol edilecek adresle
         )
 
     console.print(table)
+
+
+@app.command()
+def api(
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int = typer.Option(8000, "--port"),
+    reload: bool = typer.Option(False, "--reload", help="Geliştirme: kod değişince yeniden başlat"),
+) -> None:
+    """REST API sunucusunu başlatır.
+
+    Dokümantasyon: http://<host>:<port>/docs
+    """
+    try:
+        import uvicorn
+    except ImportError:
+        console.print("[bold red]uvicorn kurulu değil:[/] pip install 'uvicorn[standard]'")
+        raise typer.Exit(code=1)
+
+    console.print(f"[green]API:[/] http://{host}:{port}/docs")
+    uvicorn.run("priceradar.api.main:app", host=host, port=port, reload=reload)
 
 
 @app.command()
