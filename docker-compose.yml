@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: radar
+      POSTGRES_PASSWORD: radar
+      POSTGRES_DB: priceradar
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Uygulama, veritabani hazir olmadan baslamasin
+      test: ["CMD-SHELL", "pg_isready -U radar -d priceradar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  scraper:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PRICERADAR_DATABASE_URL: postgresql+asyncpg://radar:radar@db:5432/priceradar
+      PRICERADAR_MIN_INTERVAL: "1.5"
+      PRICERADAR_MAX_CONCURRENCY: "5"
+    volumes:
+      - ./config:/app/config:ro
+    command: ["scrape", "--verbose"]
+
+volumes:
+  pgdata:
