@@ -7,16 +7,17 @@ otomatik olarak eşleştirir, fiyat geçmişini tutar ve düşüşleri tespit ed
 Siteler → Adaptörler → Normalleştirme → Ürün eşleştirme → PostgreSQL → Rapor/API
 ```
 
-> **Durum: Faz 1 tamamlandı.** Scraping çekirdeği, veri modeli, ürün eşleştirme ve CLI
-> çalışıyor. FastAPI, dashboard ve e-posta bildirimi Faz 2-3'te.
+> **Durum: Faz 2 tamamlandı.** Scraping çekirdeği, veri modeli, ürün eşleştirme, CLI,
+> REST API, zamanlanmış işler ve Docker Compose çalışıyor. Dashboard, export ve
+> e-posta bildirimi Faz 3'te.
 
 ## Neden bu tasarım
 
 Çoğu "fiyat takip" projesi tek siteye gömülü bir scraper'dır ve o site HTML'ini
 değiştirdiği gün ölür. Buradaki üç karar bunu önlüyor:
 
-**Site tanımı kod değil, yapılandırma.** Yeni bir site eklemek için Python yazmıyorsun,
-`config/sites/` altına bir YAML koyuyorsun:
+**Site tanımı kod değil, veri.** Yeni bir site eklemek için Python yazmıyorsun —
+API'den `POST /sites` yapıyorsun ya da `config/sites/` altına bir YAML koyuyorsun:
 
 ```yaml
 slug: benim-magazam
@@ -63,6 +64,75 @@ getirisi yok, "neden bu ikisi birleşti?" sorusuna cevap verebilmek daha değerl
    Kapsama ölçütü `Wireless` ↔ `Kablosuz` gibi dil farklarını yakalıyor; 2. adım da
    onun fazla cömert davranmasını engelliyor.
 
+## REST API
+
+```bash
+priceradar api                      # http://127.0.0.1:8000/docs
+```
+
+Etkileşimli dokümantasyon `/docs` adresinde (OpenAPI'den otomatik üretiliyor).
+
+| Uç nokta | Ne yapar |
+|---|---|
+| `GET /health` | Sağlık kontrolü — veritabanı, zamanlayıcı, sayaçlar |
+| `GET /sites` · `POST /sites` | Site listele / kod yazmadan yeni site ekle |
+| `PATCH /sites/{slug}` · `DELETE /sites/{slug}` | Güncelle / sil |
+| `GET /products` | Ürünler, en düşük–en yüksek fiyatlarıyla |
+| `GET /products?min_offers=2` | Yalnızca birden fazla sitede bulunanlar |
+| `GET /products/{id}/history` | Fiyat geçmişi, siteye göre gruplanmış (grafik için hazır) |
+| `GET /offers` | Teklifler; site ve stok durumuna göre filtrelenebilir |
+| `POST /scrape` | Kazımayı hemen tetikle (202 döner, arka planda çalışır) |
+| `GET /scheduler` · `GET /runs` | Zamanlayıcı durumu ve çalıştırma geçmişi |
+
+Örnek — arayüzden site ekleme:
+
+```bash
+curl -X POST localhost:8000/sites -H 'Content-Type: application/json' -d '{
+  "slug": "ornek-magaza",
+  "name": "Örnek Mağaza",
+  "base_url": "https://ornek.com.tr",
+  "currency": "TRY",
+  "start_urls": ["https://ornek.com.tr/kategori/kulaklik"],
+  "selectors": {
+    "item": "div.urun-karti",
+    "title": "a.urun-adi@title",
+    "url": "a.urun-adi@href",
+    "price": "span.fiyat",
+    "availability": "div.stok-durumu"
+  }
+}'
+```
+
+`selectors.item` eksikse istek 422 ile reddedilir — hata kayıt anında verilir,
+kazıma sırasında sessizce boş sonuç dönmez.
+
+## Zamanlanmış kazıma
+
+APScheduler kullanılıyor, Celery değil. Bu iş yükü tek bir periyodik görev:
+"her N dakikada bir siteleri kazı". Celery ayrı bir broker (Redis), ayrı worker
+süreci ve dağıtım karmaşıklığı getiriyor; karşılığında verdiği dağıtık kuyruk bu
+ölçekte kullanılmıyor. Birden çok worker makinesi gerektiğinde geçiş kolay:
+`run_scrape` zaten bağımsız bir fonksiyon.
+
+```bash
+PRICERADAR_SCRAPE_INTERVAL_MINUTES=60   # 0 verirsen zamanlayıcı hiç başlamaz
+```
+
+Eşzamanlı çalıştırma kilitle engelleniyor: zamanlanmış iş sürerken elle tetiklersen
+409 alırsın. İki kazıma çakışırsa aynı siteye iki kat istek gider ve hız sınırı
+anlamsızlaşır.
+
+## Şema göçleri
+
+```bash
+alembic upgrade head                          # göçleri uygula
+alembic revision --autogenerate -m "açıklama" # model değişikliğinden göç üret
+```
+
+Bağlantı adresi `alembic.ini`'de değil, uygulama ayarlarından okunuyor — tek yerde
+tanımlı kalsın ve versiyon kontrolüne girmesin. SQLite'ta `render_as_batch` açık,
+çünkü SQLite `ALTER TABLE`'ı sınırlı destekliyor.
+
 ## Kurulum
 
 ```bash
@@ -88,8 +158,12 @@ priceradar init-db
 Ya da her şeyi konteynerde:
 
 ```bash
-docker compose up --build
+docker compose up --build          # göçler + API (http://localhost:8000/docs)
+docker compose run --rm scraper    # tek seferlik kazıma
 ```
+
+Compose zinciri: `db` sağlıklı olunca `migrate` çalışır, o başarıyla bitince `api`
+başlar. Böylece uygulama hiçbir zaman güncel olmayan bir şemaya bağlanmaz.
 
 ## Kullanım
 
@@ -101,7 +175,12 @@ priceradar products --search kulaklık       # takip edilen ürünler
 priceradar history 1                        # bir teklifin fiyat geçmişi
 priceradar runs                             # geçmiş çalıştırmalar
 priceradar robots                           # robots.txt teşhisi
+priceradar api --reload                     # REST API (geliştirme)
 ```
+
+Site tanımları veritabanından okunur. YAML dosyaları her `scrape` çalıştırmasında
+veritabanına senkronize edilir; API'den eklenen ya da düzenlenen sitelere
+dokunulmaz (`managed_by` alanı bunu ayırt eder).
 
 ## Scraping çekirdeği
 
@@ -149,6 +228,13 @@ src/priceradar/
 ├── pipeline.py           # kazı → eşleştir → kaydet → değişim tespiti
 ├── config.py             # ortam ayarları + YAML site tanımları
 ├── cli.py
+├── scheduler.py          # APScheduler işleri, eşzamanlı çalıştırma kilidi
+├── sites_repo.py         # YAML ↔ veritabanı senkronizasyonu
+├── api/
+│   ├── main.py           # FastAPI uygulaması, lifespan, sağlık kontrolü
+│   ├── schemas.py        # Pydantic istek/yanıt modelleri
+│   ├── deps.py           # oturum ve ayar bağımlılıkları
+│   └── routers/          # sites, products, offers, jobs
 ├── db/
 │   ├── models.py         # Site, Product, Offer, PriceSnapshot, ScrapeRun, PriceAlert
 │   └── session.py        # async motor, SQLite/PostgreSQL
@@ -158,7 +244,8 @@ src/priceradar/
     ├── css_adapter.py    # YAML/CSS seçici tabanlı (statik HTML)
     └── playwright_adapter.py
 config/sites/             # site tanımları (YAML)
-tests/                    # 86 test, fixture tabanlı (ağ erişimi gerekmez)
+migrations/               # Alembic göçleri
+tests/                    # 111 test, fixture tabanlı (ağ erişimi gerekmez)
 ```
 
 ## Geliştirme
@@ -174,10 +261,10 @@ Veritabanı testleri gerçek async SQLAlchemy ile geçici SQLite üzerinde koşa
 
 ## Yol haritası
 
-**Faz 2 — API ve otomasyon**
-- [ ] FastAPI REST (ürünler, teklifler, fiyat geçmişi, site CRUD)
-- [ ] Background jobs (APScheduler veya Celery + Redis)
-- [ ] Alembic ile şema göçleri
+**Faz 2 — API ve otomasyon** ✅
+- [x] FastAPI REST (ürünler, teklifler, fiyat geçmişi, site CRUD)
+- [x] Background jobs (APScheduler)
+- [x] Alembic ile şema göçleri
 
 **Faz 3 — Arayüz ve bildirim**
 - [ ] Dashboard (fiyat grafiği, siteler arası karşılaştırma)
@@ -185,6 +272,8 @@ Veritabanı testleri gerçek async SQLAlchemy ile geçici SQLite üzerinde koşa
 - [ ] Fiyat düşünce e-posta bildirimi (`PriceAlert` modeli hazır)
 
 **Sonrası**
+- [ ] Kimlik doğrulama (API anahtarı veya JWT)
+- [ ] Celery + Redis'e geçiş (birden çok worker gerekirse)
 - [ ] Ekran görüntüsü geçmişi
 - [ ] Webhook desteği
 - [ ] Prometheus metrikleri

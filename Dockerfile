@@ -13,11 +13,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 COPY config/ ./config/
+COPY migrations/ ./migrations/
+COPY alembic.ini ./
 RUN pip install --no-cache-dir --no-deps -e .
 
 # Kok olarak calistirma
 RUN useradd --create-home --uid 1000 radar && chown -R radar:radar /app
 USER radar
 
+EXPOSE 8000
+
 ENTRYPOINT ["priceradar"]
-CMD ["--help"]
+CMD ["api", "--host", "0.0.0.0"]
