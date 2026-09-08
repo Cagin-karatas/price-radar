@@ -19,9 +19,11 @@ from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
+from .alerts import evaluate_alerts
 from .config import Settings
 from .db.session import session_scope
-from .pipeline import run_collection
+from .notifications.email import EmailError, send_alert_emails
+from .pipeline import IngestResult, run_collection
 from .scraping.client import AsyncScraperClient
 from .sites_repo import load_enabled_configs
 
@@ -46,6 +48,7 @@ class ScrapeManager:
         self.last_started_at: datetime | None = None
         self.last_finished_at: datetime | None = None
         self.last_error: str | None = None
+        self.last_alert_result: dict | None = None
 
     @property
     def is_scraping(self) -> bool:
@@ -94,6 +97,10 @@ class ScrapeManager:
                             "duplicates_merged": result.duplicates_merged,
                             "errors": result.errors,
                         }
+                        triggered = await self._handle_alerts(session, result)
+
+                summary["alerts_triggered"] = len(triggered)
+                summary["alerts_sent"] = self.last_alert_result
 
                 logger.info("Kazıma bitti: %s", summary)
                 return summary
@@ -107,6 +114,33 @@ class ScrapeManager:
             finally:
                 self._running = False
                 self.last_finished_at = datetime.now()
+
+    async def _handle_alerts(self, session, result: IngestResult) -> list:
+        """Fiyat düşüşlerini alarm kurallarıyla karşılaştırır ve bildirim gönderir.
+
+        Bildirim hatası kazımayı başarısız saymamalı: veri zaten toplandı ve
+        kaydedildi, SMTP çökmesi bunu geçersiz kılmaz.
+        """
+        self.last_alert_result = None
+
+        if not self.settings.alerts_enabled:
+            return []
+
+        triggered = await evaluate_alerts(
+            session,
+            result.price_changes,
+            cooldown_hours=self.settings.alert_cooldown_hours,
+        )
+        if not triggered:
+            return []
+
+        try:
+            self.last_alert_result = await send_alert_emails(self.settings, triggered)
+        except EmailError as exc:
+            logger.error("Bildirim gönderilemedi: %s", exc)
+            self.last_alert_result = {"error": str(exc)}
+
+        return triggered
 
     def start(self) -> None:
         """Zamanlayıcıyı başlatır."""

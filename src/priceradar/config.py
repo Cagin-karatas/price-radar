@@ -51,12 +51,14 @@ class Settings(BaseSettings):
     api_title: str = "price-radar"
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
-    # Bildirim (Faz 3'te kullanilacak)
+    # Bildirim
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
     alert_sender: str = ""
+    alerts_enabled: bool = False
+    alert_cooldown_hours: int = 12
 
     echo_sql: bool = False
 
