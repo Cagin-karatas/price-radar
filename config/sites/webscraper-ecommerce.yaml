@@ -1,0 +1,27 @@
+# webscraper.io test sitesi - JavaScript ile urun yukleyen sayfa.
+# Playwright yolunun ornegi. Calistirmak icin:
+#   pip install "price-radar[browser]" && playwright install chromium
+
+slug: webscraper-ecommerce
+name: WebScraper Test Shop
+base_url: https://webscraper.io
+adapter: browser
+currency: USD
+enabled: false          # Playwright kurulu degilse sessizce atlansin
+max_pages: 1
+
+start_urls:
+  - https://webscraper.io/test-sites/e-commerce/ajax/computers/laptops
+
+selectors:
+  item: "div.card"
+  title: "a.title@title"
+  url: "a.title@href"
+  price: "h4.price, span.price"
+  availability: "p.stock, .ratings"
+  image: "img.card-img-top@src"
+
+browser:
+  wait_for: "div.card"
+  wait_ms: 800
+  headless: true

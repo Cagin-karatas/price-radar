@@ -1,0 +1,23 @@
+# books.toscrape.com - scraping egitimi icin acikca yayinlanmis statik site.
+# Kod yazmadan, sadece CSS seciciyle site eklemenin ornegi.
+
+slug: books-toscrape
+name: Books to Scrape
+base_url: https://books.toscrape.com
+adapter: css
+currency: GBP
+max_pages: 3
+
+start_urls:
+  - https://books.toscrape.com/catalogue/category/books/mystery_3/index.html
+
+selectors:
+  item: "article.product_pod"
+  title: "h3 a@title"
+  url: "h3 a@href"
+  price: "p.price_color"
+  availability: "p.instock"
+  image: "div.image_container img@src"
+
+pagination:
+  next: "li.next a"
