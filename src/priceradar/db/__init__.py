@@ -9,7 +9,14 @@ from .models import (
     ScrapeRun,
     Site,
 )
-from .session import dispose_db, get_engine, get_session_factory, init_db, session_scope
+from .session import (
+    SchemaOutdatedError,
+    dispose_db,
+    get_engine,
+    get_session_factory,
+    init_db,
+    session_scope,
+)
 
 __all__ = [
     "Base",
@@ -19,6 +26,7 @@ __all__ = [
     "Product",
     "ScrapeRun",
     "Site",
+    "SchemaOutdatedError",
     "dispose_db",
     "get_engine",
     "get_session_factory",

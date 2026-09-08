@@ -51,16 +51,71 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
     return _session_factory
 
 
-async def init_db(url: str, echo: bool = False) -> AsyncEngine:
-    """Tablolari olusturur.
+class SchemaOutdatedError(RuntimeError):
+    """Veritabani semasi modellerle uyusmuyor."""
 
-    Not: bu gelistirme kolayligi. Uretimde sema degisikligi icin Alembic
-    gerekir - yol haritasinda.
+
+async def _verify_or_create(conn, echo: bool = False) -> str:
+    """Semayi dogrular; bos veritabaninda olusturur.
+
+    Alembic eklendikten sonra `create_all` tek basina tehlikeli hale geldi:
+    tablolar zaten varsa hicbir sey yapmiyor ve eski semayi sessizce kabul
+    ediyor. Uygulama da ilk sorguda "no such column" ile 200 satirlik bir
+    yigin izi basiyor. Burada eksigi onceden yakalayip ne yapilacagini
+    soyleyen bir hata veriyoruz.
+    """
+    from sqlalchemy import inspect
+
+    def _inspect(sync_conn):
+        inspector = inspect(sync_conn)
+        existing = set(inspector.get_table_names())
+        problems: list[str] = []
+
+        for table_name, table in Base.metadata.tables.items():
+            if table_name not in existing:
+                problems.append(f"{table_name}: tablo yok")
+                continue
+            actual = {col["name"] for col in inspector.get_columns(table_name)}
+            missing = {c.name for c in table.columns} - actual
+            if missing:
+                problems.append(f"{table_name}: eksik sutun {', '.join(sorted(missing))}")
+
+        return existing, problems
+
+    existing, problems = await conn.run_sync(_inspect)
+
+    if not existing:
+        await conn.run_sync(Base.metadata.create_all)
+        return "created"
+
+    if problems:
+        raise SchemaOutdatedError(
+            "Veritabani semasi guncel degil:\n  - "
+            + "\n  - ".join(problems)
+            + "\n\nCozum:\n"
+            "  alembic upgrade head\n"
+            "Gocler uygulanamiyorsa (sema Alembic'ten once olusturulduysa) "
+            "veritabani dosyasini silip yeniden olustur."
+        )
+
+    return "ok"
+
+
+async def init_db(url: str, echo: bool = False) -> AsyncEngine:
+    """Baglantiyi kurar ve semanin guncel oldugunu dogrular.
+
+    Bos veritabaninda tablolari olusturur (sifir yapilandirmayla ilk calistirma).
+    Mevcut ama eski bir semada net bir hata verir.
     """
     engine = get_engine(url, echo=echo)
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Veritabani hazir: %s", url.split("@")[-1])
+        outcome = await _verify_or_create(conn, echo=echo)
+
+    if outcome == "created":
+        logger.info("Sema olusturuldu: %s", url.split("@")[-1])
+    else:
+        logger.debug("Sema guncel: %s", url.split("@")[-1])
+
     return engine
 
 

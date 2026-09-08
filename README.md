@@ -129,6 +129,14 @@ alembic upgrade head                          # göçleri uygula
 alembic revision --autogenerate -m "açıklama" # model değişikliğinden göç üret
 ```
 
+Uygulama açılışta şemayı doğruluyor. Eksik sütun veya tablo varsa hangisinin
+eksik olduğunu ve ne yapılacağını söyleyen bir hata verip duruyor — eski şemayla
+çalışıp ilk sorguda çökmüyor. Boş bir veritabanında tablolar otomatik oluşturulur,
+yani ilk çalıştırma için göç komutuna gerek yok.
+
+Alembic'ten önce oluşturulmuş bir veritabanın varsa (Faz 1'den kalma), göç uygulanamaz;
+dosyayı silip yeniden oluştur.
+
 Bağlantı adresi `alembic.ini`'de değil, uygulama ayarlarından okunuyor — tek yerde
 tanımlı kalsın ve versiyon kontrolüne girmesin. SQLite'ta `render_as_batch` açık,
 çünkü SQLite `ALTER TABLE`'ı sınırlı destekliyor.

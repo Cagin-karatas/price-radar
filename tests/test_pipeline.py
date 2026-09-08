@@ -379,3 +379,59 @@ async def test_run_collection_records_run(session):
 )
 def test_normalize_url(raw, expected):
     assert normalize_url(raw) == expected
+
+
+# --- şema doğrulama (canlı çalıştırmada bulunan hata) -----------------------
+
+async def test_init_db_creates_schema_on_empty_database(tmp_path):
+    """Sifir yapilandirmayla ilk calistirma: tablolar olusturulmali."""
+    from sqlalchemy import inspect
+
+    from priceradar.db import session as session_module
+    from priceradar.db.session import dispose_db, init_db
+
+    session_module._engine = None
+    session_module._session_factory = None
+
+    engine = await init_db(f"sqlite+aiosqlite:///{tmp_path}/yeni.db")
+
+    async with engine.begin() as conn:
+        tables = await conn.run_sync(lambda c: set(inspect(c).get_table_names()))
+
+    assert {"sites", "products", "offers", "price_snapshots"} <= tables
+    await dispose_db()
+
+
+async def test_init_db_rejects_outdated_schema(tmp_path):
+    """Eski semali veritabani sessizce kabul edilmemeli.
+
+    create_all mevcut tablolara dokunmuyor; Alembic eklendikten sonra bu,
+    uygulamanin ilk sorguda 'no such column' ile cokmesine yol aciyordu.
+    """
+    import sqlite3
+
+    from priceradar.db import session as session_module
+    from priceradar.db.session import SchemaOutdatedError, dispose_db, init_db
+
+    path = tmp_path / "eski.db"
+    connection = sqlite3.connect(path)
+    # Faz 1'deki sites tablosu: yeni yapilandirma sutunlari yok
+    connection.execute(
+        "CREATE TABLE sites (id INTEGER PRIMARY KEY, slug VARCHAR(64), "
+        "name VARCHAR(200), base_url VARCHAR(500), adapter VARCHAR(64), "
+        "enabled BOOLEAN, created_at DATETIME)"
+    )
+    connection.commit()
+    connection.close()
+
+    session_module._engine = None
+    session_module._session_factory = None
+
+    with pytest.raises(SchemaOutdatedError) as error:
+        await init_db(f"sqlite+aiosqlite:///{path}")
+
+    message = str(error.value)
+    assert "currency" in message           # eksik sutunu adiyla soyler
+    assert "alembic upgrade head" in message   # ne yapilacagini soyler
+
+    await dispose_db()
