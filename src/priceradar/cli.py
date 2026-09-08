@@ -39,8 +39,10 @@ def _setup_logging(verbose: bool) -> None:
         format="%(message)s",
         handlers=[RichHandler(console=console, show_path=False, show_time=False)],
     )
-    # httpx her isteği INFO seviyesinde logluyor, gürültü yapıyor
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    # Kütüphanelerin kendi DEBUG logları kendi çıktımızı boğuyor:
+    # httpx her isteği, aiosqlite/SQLAlchemy her bağlantı işlemini basıyor.
+    for noisy in ("httpx", "httpcore", "aiosqlite", "sqlalchemy.engine", "sqlalchemy.pool"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def _build_client(settings: Settings) -> AsyncScraperClient:
