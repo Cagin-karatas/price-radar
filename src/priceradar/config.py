@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     # Eslestirme
     match_threshold: float = 0.82
 
+    # Zamanlanmis kazima. 0 verirsen zamanlayici hic baslamaz.
+    scrape_interval_minutes: int = 60
+
+    # API
+    api_title: str = "price-radar"
+    cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+
     # Bildirim (Faz 3'te kullanilacak)
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
