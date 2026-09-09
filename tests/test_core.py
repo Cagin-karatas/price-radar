@@ -519,19 +519,35 @@ def test_similar_book_titles_stay_separate(a, b):
     assert match(a, b).matched is False
 
 
-def test_containment_still_helps_cross_language():
-    """Kapsama olcutu dil farkinda hala calismali: uzunluklar benzer."""
+def test_single_differing_word_keeps_products_apart():
+    """Canli kazimada birlesen gercek cift: tek kelime disinda ayni basliklar.
+
+    Kapsama olcutu bunlari 0.86 ile eslestiriyordu. Olcut kaldirildi;
+    dil farki artik SYNONYMS sozluguyle cozuluyor.
+    """
     result = match(
-        "Logitech MX Master 3S Wireless Mouse",
-        "Logitech MX Master 3S Kablosuz Mouse",
+        "Erişkin Acil Servis Order-Reçete El Kitabı",
+        "Pediatrik Acil Servis Order-Reçete El Kitabı |20",
     )
-    assert result.matched
+
+    assert result.matched is False
+    assert result.score < 0.82
 
 
-def test_containment_requires_enough_tokens():
-    """Iki kelimelik basliklarda kapsama devre disi."""
-    from priceradar.matching import title_similarity
+@pytest.mark.parametrize(
+    "tr,en",
+    [
+        ("Anker Taşınabilir Bluetoothlu Hoparlör", "Anker Portable Bluetooth Speaker"),
+        ("Logitech MX Master 3S Kablosuz Mouse", "Logitech MX Master 3S Wireless Mouse"),
+    ],
+)
+def test_synonym_dictionary_bridges_languages(tr, en):
+    """Dil farki bulanik olcutle degil, acik sozlukle cozuluyor."""
+    assert match(tr, en).matched
 
-    # {kirmizi, kalem} tamamen {kirmizi, kalem, seti, premium} icinde
-    score = title_similarity("Kırmızı Kalem Seti Premium", "Kırmızı Kalem")
-    assert score < 0.82
+
+def test_synonyms_are_applied_during_tokenization():
+    from priceradar.matching import tokenize
+
+    assert "wireless" in tokenize("Kablosuz Kulaklık")
+    assert "headphones" in tokenize("Kablosuz Kulaklık")

@@ -225,12 +225,34 @@ async def test_different_variants_stay_separate(session):
     assert result.duplicates_merged == 0
 
 
-async def test_duplicate_within_same_site_is_merged(session):
-    """Ayni site farkli URL'lerde ayni urunu listeleyebilir."""
+async def test_translated_titles_share_one_product(session):
+    """Ayni urun TR ve EN nitelikle listelendiginde tek urun olmali.
+
+    SYNONYMS sozlugu 'kablosuz' -> 'wireless' donusumunu tokenlestirme
+    sirasinda yaptigi icin iki baslik ayni parmak izini uretiyor: birlesme
+    bulanik eslestirmeye hic gerek kalmadan kesin eslesmeyle oluyor.
+    """
     configs = {"testshop": site_config()}
 
     items = [
         item("Logitech MX Master 3S Wireless Mouse", "99.00", url="https://test.example/a"),
+        item("Logitech MX Master 3S Kablosuz Mouse", "97.50", url="https://test.example/b"),
+    ]
+
+    result = await ingest_items(session, items, configs)
+    await session.commit()
+
+    assert result.products_created == 1
+    assert result.offers_created == 2
+    assert result.duplicates_merged == 0  # parmak izi yolu, bulanik yol degil
+
+
+async def test_fuzzy_match_merges_and_counts(session):
+    """Parmak izleri farkli ama basliklar yeterince benzer: bulanik yol."""
+    configs = {"testshop": site_config()}
+
+    items = [
+        item("Logitech MX Master 3S Mouse", "99.00", url="https://test.example/a"),
         item("Logitech MX Master 3S Kablosuz Mouse", "97.50", url="https://test.example/b"),
     ]
 

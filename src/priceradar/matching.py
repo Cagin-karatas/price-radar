@@ -38,13 +38,33 @@ STOPWORDS = {
 # harf ve rakam içeren, en az 4 karakterlik belirteçler
 MODEL_CODE_RE = re.compile(r"\b(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)[a-z0-9]+(?:-[a-z0-9]+)*\b")
 
-# Kapsama olcutunun kullanilabilmesi icin kucuk kumenin en az bu kadar
-# anlamli kelimesi olmali; iki kelimelik basliklar fazla kolay eslesiyor.
-MIN_TOKENS_FOR_CONTAINMENT = 3
-
-# ...ve iki basligin kelime sayilari birbirine bu oranda yakin olmali.
-# Dil farkinda uzunluk korunur, kisaltmada korunmaz.
-LENGTH_RATIO_FLOOR = 0.6
+# Ayni urunun farkli dillerdeki adlari. Turk sitelerinde ayni urun hem
+# Turkce hem Ingilizce nitelikle listelenebiliyor; bunlari ortak bir
+# karsiliga indirgemek, bulanik olcutleri zorlamaktan daha guvenilir.
+#
+# Kucuk ve elle bakimli olmasi kasitli: her giris acikca savunulabilir
+# olmali. Otomatik ceviri burada yanlis birlestirme riskini artirirdi.
+SYNONYMS = {
+    "kablosuz": "wireless",
+    "bluetoothlu": "bluetooth",
+    "sarjli": "rechargeable",
+    "tasinabilir": "portable",
+    "gurultu": "noise",
+    "engelleyici": "cancelling",
+    "kulaklik": "headphones",
+    "kulakustu": "over-ear",
+    "klavye": "keyboard",
+    "fare": "mouse",
+    "ekran": "display",
+    "sarj": "charger",
+    "kilif": "case",
+    "adaptor": "adapter",
+    "hoparlor": "speaker",
+    "saat": "watch",
+    "bilgisayar": "computer",
+    "dizustu": "laptop",
+    "tablet": "tablet",
+}
 
 TR_MAP = str.maketrans({
     "ı": "i", "İ": "i", "ş": "s", "Ş": "s", "ğ": "g", "Ğ": "g",
@@ -63,7 +83,7 @@ def normalize_title(title: str) -> str:
 def tokenize(title: str) -> list[str]:
     """Anlamlı belirteçleri döndürür."""
     return [
-        token
+        SYNONYMS.get(token, token)
         for token in normalize_title(title).split()
         if token not in STOPWORDS and len(token) > 1
     ]
@@ -126,36 +146,32 @@ def has_spec_conflict(a: str, b: str) -> bool:
 
 
 def title_similarity(a: str, b: str) -> float:
-    """0-1 arası benzerlik.
+    """0-1 arası benzerlik: Jaccard ile karakter dizisi benzerliğinin ortalaması.
 
-    Üç ölçüt birleştiriliyor:
-      - Jaccard: token kümesi kesişimi / birleşimi
-      - Kapsama: kesişim / küçük kümenin boyutu
-      - Karakter dizisi benzerliği
+    Burada bilinçli olarak **kapsama ölçütü kullanılmıyor**. Kapsama
+    (kesişim / küçük küme) dil farkını yakalamak için denenmişti, ama iki
+    başlık tek kelimeyle ayrıldığında da yüksek skor üretiyor:
 
-    Kapsama, farklı dillerde yazılmış aynı ürünü yakalamak için var
-    ("Wireless Mouse" ↔ "Kablosuz Mouse"). Ama tek başına tehlikeli: bir
-    başlık diğerinin kısaltılmışıysa kapsama 1.0 çıkar ve iki farklı ürün
-    birleşir ("Dil Belası" ⊂ "Dil Belası - Dilin Afetleri").
+        "Erişkin Acil Servis Order-Reçete El Kitabı"
+        "Pediatrik Acil Servis Order-Reçete El Kitabı"
 
-    Bu yüzden kapsama yalnızca başlıkların **uzunlukları birbirine yakınken**
-    kullanılıyor. Dil farkında kelime sayısı benzer kalır; kısaltmada kalmaz.
+    Bu iki vaka yapısal olarak aynı: her iki tarafta diğerinde olmayan bir
+    kelime var. Sözlük olmadan hiçbir ölçüt "kablosuz = wireless" ile
+    "erişkin ≠ pediatrik" arasındaki farkı göremez. Bu yüzden dil farkı
+    ölçütle değil, `SYNONYMS` sözlüğüyle çözülüyor.
+
+    Tercih **kesinlik yönünde**: yanlış birleştirme iki farklı ürünün
+    fiyatlarını karşılaştırır ve projenin temel işlevini bozar. Kaçırılan
+    birleştirme ise sadece tek satır yerine iki satır göstermek demek.
     """
     tokens_a, tokens_b = set(tokenize(a)), set(tokenize(b))
     if not tokens_a or not tokens_b:
         return 0.0
 
-    intersection = len(tokens_a & tokens_b)
-    smaller, larger = sorted((len(tokens_a), len(tokens_b)))
-
-    jaccard = intersection / len(tokens_a | tokens_b)
+    jaccard = len(tokens_a & tokens_b) / len(tokens_a | tokens_b)
     sequence = SequenceMatcher(None, normalize_title(a), normalize_title(b)).ratio()
 
-    overlap = jaccard
-    if smaller >= MIN_TOKENS_FOR_CONTAINMENT and smaller / larger >= LENGTH_RATIO_FLOOR:
-        overlap = max(jaccard, intersection / smaller)
-
-    return round((overlap + sequence) / 2, 4)
+    return round((jaccard + sequence) / 2, 4)
 
 
 def fingerprint(title: str, brand: str | None = None) -> str:

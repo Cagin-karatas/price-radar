@@ -59,12 +59,29 @@ getirisi yok, "neden bu ikisi birleşti?" sorusuna cevap verebilmek daha değerl
 1. **Model kodu** — `WH-1000XM5` ↔ `WH1000XM5`. Varsa en güvenilir sinyal, kesin eşleşme.
 2. **Sayısal varyant çelişkisi** — `iPhone 13` ile `iPhone 14` başlık olarak %96 benzer
    ama farklı ürünler. `256GB` ile `512GB` de öyle. Benzerliğe bakmadan ayrılırlar.
-3. **Bulanık başlık** — Jaccard, kapsama ve karakter dizisi benzerliğinin birleşimi.
-   Kapsama ölçütü `Wireless` ↔ `Kablosuz` gibi dil farklarını yakalıyor, ama yalnızca
-   iki başlığın kelime sayıları birbirine yakınken devreye giriyor. Aksi halde
-   kısaltılmış bir başlık uzun olanın içine düşüp yanlış eşleşme üretiyor
-   (`Dil Belası` ⊂ `Dil Belası - Dilin Afetleri`). Dil farkında uzunluk korunur,
-   kısaltmada korunmaz — ayrım buradan çıkıyor.
+3. **Eşanlamlı sözlüğü** — `Kablosuz` → `wireless`, `Kulaklık` → `headphones`.
+   Türk sitelerinde aynı ürün hem Türkçe hem İngilizce nitelikle listeleniyor.
+   Küçük ve elle bakımlı bir sözlük; her girdi açıkça savunulabilir olmalı.
+4. **Bulanık başlık** — Jaccard ile karakter dizisi benzerliğinin ortalaması.
+
+### Kapsama ölçütü neden kaldırıldı
+
+İlk sürümde dil farkını yakalamak için kapsama (kesişim / küçük küme) da
+kullanılıyordu. Canlı bir kazımada iki farklı kitabı birleştirdi:
+
+```
+Erişkin Acil Servis Order-Reçete El Kitabı
+Pediatrik Acil Servis Order-Reçete El Kitabı
+```
+
+Sorun ölçütün ayarında değil, varsayımındaydı. `Wireless`/`Kablosuz` ile
+`Erişkin`/`Pediatrik` yapısal olarak aynı: her iki tarafta diğerinde olmayan bir
+kelime var. Sözlük olmadan hiçbir ölçüt bunları ayırt edemez. Bu yüzden ölçüt
+kaldırıldı ve eksik bilgi (dil karşılıkları) açıkça eklendi.
+
+Tercih **kesinlik yönünde**: yanlış birleştirme iki farklı ürünün fiyatlarını
+karşılaştırır ve projenin temel işlevini bozar. Kaçırılan birleştirme ise sadece
+tek satır yerine iki satır göstermek demek.
 
 ## Pano
 
@@ -350,7 +367,7 @@ src/priceradar/
     └── playwright_adapter.py
 config/sites/             # site tanımları (YAML)
 migrations/               # Alembic göçleri
-tests/                    # 159 test, fixture tabanlı (ağ erişimi gerekmez)
+tests/                    # 162 test, fixture tabanlı (ağ erişimi gerekmez)
 ```
 
 ## Geliştirme
@@ -377,6 +394,8 @@ Veritabanı testleri gerçek async SQLAlchemy ile geçici SQLite üzerinde koşa
 - [x] Fiyat düşünce e-posta bildirimi
 
 **Sonrası**
+- [ ] ISBN/GTIN çıkarımı — kitapta ISBN, model kodunun tam karşılığı ve
+      eşleştirmenin en güvenilir yolu; ürün detay sayfasından alınabilir
 - [ ] Kimlik doğrulama (API anahtarı veya JWT)
 - [ ] Celery + Redis'e geçiş (birden çok worker gerekirse)
 - [ ] Ekran görüntüsü geçmişi
