@@ -38,6 +38,14 @@ STOPWORDS = {
 # harf ve rakam içeren, en az 4 karakterlik belirteçler
 MODEL_CODE_RE = re.compile(r"\b(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)[a-z0-9]+(?:-[a-z0-9]+)*\b")
 
+# Kapsama olcutunun kullanilabilmesi icin kucuk kumenin en az bu kadar
+# anlamli kelimesi olmali; iki kelimelik basliklar fazla kolay eslesiyor.
+MIN_TOKENS_FOR_CONTAINMENT = 3
+
+# ...ve iki basligin kelime sayilari birbirine bu oranda yakin olmali.
+# Dil farkinda uzunluk korunur, kisaltmada korunmaz.
+LENGTH_RATIO_FLOOR = 0.6
+
 TR_MAP = str.maketrans({
     "ı": "i", "İ": "i", "ş": "s", "Ş": "s", "ğ": "g", "Ğ": "g",
     "ü": "u", "Ü": "u", "ö": "o", "Ö": "o", "ç": "c", "Ç": "c",
@@ -122,23 +130,32 @@ def title_similarity(a: str, b: str) -> float:
 
     Üç ölçüt birleştiriliyor:
       - Jaccard: token kümesi kesişimi / birleşimi
-      - Kapsama: kesişim / küçük kümenin boyutu — farklı dillerde yazılmış
-        aynı ürünü yakalar ("Wireless Mouse" ↔ "Kablosuz Mouse")
+      - Kapsama: kesişim / küçük kümenin boyutu
       - Karakter dizisi benzerliği
 
-    Kapsama tek başına fazla cömert ("iPhone" ⊂ "iPhone 15 Pro"), ama
-    `has_spec_conflict` sayısal varyantları zaten eliyor.
+    Kapsama, farklı dillerde yazılmış aynı ürünü yakalamak için var
+    ("Wireless Mouse" ↔ "Kablosuz Mouse"). Ama tek başına tehlikeli: bir
+    başlık diğerinin kısaltılmışıysa kapsama 1.0 çıkar ve iki farklı ürün
+    birleşir ("Dil Belası" ⊂ "Dil Belası - Dilin Afetleri").
+
+    Bu yüzden kapsama yalnızca başlıkların **uzunlukları birbirine yakınken**
+    kullanılıyor. Dil farkında kelime sayısı benzer kalır; kısaltmada kalmaz.
     """
     tokens_a, tokens_b = set(tokenize(a)), set(tokenize(b))
     if not tokens_a or not tokens_b:
         return 0.0
 
     intersection = len(tokens_a & tokens_b)
+    smaller, larger = sorted((len(tokens_a), len(tokens_b)))
+
     jaccard = intersection / len(tokens_a | tokens_b)
-    containment = intersection / min(len(tokens_a), len(tokens_b))
     sequence = SequenceMatcher(None, normalize_title(a), normalize_title(b)).ratio()
 
-    return round((max(jaccard, containment) + sequence) / 2, 4)
+    overlap = jaccard
+    if smaller >= MIN_TOKENS_FOR_CONTAINMENT and smaller / larger >= LENGTH_RATIO_FLOOR:
+        overlap = max(jaccard, intersection / smaller)
+
+    return round((overlap + sequence) / 2, 4)
 
 
 def fingerprint(title: str, brand: str | None = None) -> str:

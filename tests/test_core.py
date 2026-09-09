@@ -488,3 +488,50 @@ def test_adapter_warns_when_selector_matches_nothing(caplog):
     assert items == []
     assert "hiç eşleşme bulamadı" in caplog.text
     assert "div.ky-product" in caplog.text
+
+
+# --- kapsama ölçütünün sınırı (canlı kazımada bulunan yanlış pozitif) -------
+
+def test_shortened_title_is_not_absorbed_by_longer_one():
+    """Kisaltilmis baslik uzun olanla eslesmemeli.
+
+    Canli kazimada iki ayri kitap birlestirilmisti: {dil, belasi} kumesi
+    {dil, belasi, dilin, afetleri} kumesinin tamamen icinde oldugu icin
+    kapsama 1.0 cikiyordu. Sayisal varyant kilidi burada devreye girmiyor,
+    cunku ortada rakam yok.
+    """
+    result = match("Dil Belası - Dilin Afetleri", "Dil Belası")
+
+    assert result.matched is False
+    assert result.score < 0.7
+
+
+@pytest.mark.parametrize(
+    "a,b",
+    [
+        ("İyi Arkadaşları Tanıma Rehberi", "İyi Arkadaş Kimdir?"),
+        ("Gece Yarısı Kütüphanesi", "Gece Yarısı Treni"),
+        ("Tuhaf Binalar", "Tuhaf Resimler"),
+    ],
+)
+def test_similar_book_titles_stay_separate(a, b):
+    """Ortak kelime tasiyan farkli kitaplar ayri kalmali."""
+    assert match(a, b).matched is False
+
+
+def test_containment_still_helps_cross_language():
+    """Kapsama olcutu dil farkinda hala calismali: uzunluklar benzer."""
+    result = match(
+        "Logitech MX Master 3S Wireless Mouse",
+        "Logitech MX Master 3S Kablosuz Mouse",
+    )
+    assert result.matched
+
+
+def test_containment_requires_enough_tokens():
+    """Iki kelimelik basliklarda kapsama devre disi."""
+    from priceradar.matching import title_similarity
+
+    # {kirmizi, kalem} tamamen {kirmizi, kalem, seti, premium} icinde
+    score = title_similarity("Kırmızı Kalem Seti Premium", "Kırmızı Kalem")
+    assert score < 0.82
