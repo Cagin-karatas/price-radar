@@ -1,0 +1,36 @@
+# kitapyurdu.com — sunucu tarafında render edilen gerçek bir e-ticaret sitesi.
+#
+# ÖNEMLİ: robots.txt bu yollara izin veriyor (`priceradar robots` ile doğrulandı),
+# ama robots.txt hukuki izin belgesi değil. Kendi kullanımından önce sitenin
+# kullanım koşullarını oku. Burada amaç düşük hacimli, nazik bir örnek:
+# üç sayfa, istekler arası bekleme varsayılan ayarlardan geliyor.
+#
+# Bu tanım aynı zamanda adaptörün genelliğinin kanıtı: books.toscrape ile
+# tamamen farklı bir HTML yapısı, tek satır Python yazmadan eklendi.
+
+slug: kitapyurdu
+name: Kitapyurdu
+base_url: https://www.kitapyurdu.com
+adapter: css
+currency: TRY
+enabled: false          # bilinçli olarak kapalı: açmadan önce kullanım koşullarını oku
+max_pages: 1            # start_urls'de sayfalar zaten sıralı
+
+# Sitede anlamlı bir "sonraki sayfa" bağlantısı yok — sayfalama kutusundaki
+# bağlantıların hepsi aynı class'ta ve numaralı. Bu durumda URL'leri elle
+# saymak, kırılgan bir seçiciye güvenmekten daha güvenilir.
+start_urls:
+  - https://www.kitapyurdu.com/index.php?route=product/list&category_id=1&page=1
+  - https://www.kitapyurdu.com/index.php?route=product/list&category_id=1&page=2
+  - https://www.kitapyurdu.com/index.php?route=product/list&category_id=1&page=3
+
+selectors:
+  item: "div.ky-product"
+  title: "span.ky-product-title"
+  url: "a.ky-product-cover@href"
+  price: "span.ky-product-price.ky-product-sell-price"
+  # Kitapta yazar, ürün eşleştirmesi için markanın karşılığı: aynı kitabı
+  # farklı sitelerde eşleştirirken en güçlü ikinci sinyal (ilki başlık).
+  brand: "span.ky-product-author"
+  # "Sepete Ekle" butonu varsa ürün satışta demektir
+  availability: "button.ky-product-cta"

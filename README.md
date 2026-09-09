@@ -287,6 +287,27 @@ Sonra site YAML'ında `adapter: browser` yeterli. Ayrıştırma mantığı CSS a
 aynı — tarayıcı yalnızca HTML'i üretmek için kullanılıyor, bu sayede ayrıştırma
 testleri tarayıcı olmadan koşuyor.
 
+## Gerçek bir siteyi eklemek
+
+`config/sites/kitapyurdu.yaml` gerçek bir e-ticaret sitesinin tanımı ve adaptörün
+genelliğinin kanıtı: `books.toscrape` ile tamamen farklı bir HTML yapısı, tek satır
+Python yazmadan eklendi. Türkçe fiyat formatı (`204,10 TL`) da normalleştirme
+katmanında otomatik çözülüyor.
+
+İki tasarım detayı bu tanımdan çıktı:
+
+- Sitede anlamlı bir "sonraki sayfa" bağlantısı yok — sayfalama kutusundaki
+  bağlantıların hepsi aynı class'ta ve numaralı. Bu durumda URL'leri `start_urls`
+  altında saymak, kırılgan bir seçiciye güvenmekten güvenilir.
+- Kitapta **yazar**, ürün eşleştirmesinde markanın karşılığı. Aynı kitabı farklı
+  sitelerde eşleştirirken başlıktan sonraki en güçlü sinyal.
+
+Tanım `enabled: false` ile geliyor. Açmadan önce sitenin kullanım koşullarını oku —
+robots.txt izin veriyor olabilir ama o hukuki bir izin belgesi değil.
+
+Seçicilerin doğruluğu `tests/test_core.py` içinde gerçek sayfadan kısaltılmış bir
+fixture ile test ediliyor. Site yapısını değiştirirse test kırılır.
+
 ## Etik ve yasal not
 
 Demo siteleri (`books.toscrape.com`, `webscraper.io`) kazımaya açıkça izin veren test
@@ -326,7 +347,7 @@ src/priceradar/
     └── playwright_adapter.py
 config/sites/             # site tanımları (YAML)
 migrations/               # Alembic göçleri
-tests/                    # 145 test, fixture tabanlı (ağ erişimi gerekmez)
+tests/                    # 150 test, fixture tabanlı (ağ erişimi gerekmez)
 ```
 
 ## Geliştirme

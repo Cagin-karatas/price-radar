@@ -400,3 +400,76 @@ def test_cross_language_titles_match():
         "Logitech MX Master 3S Kablosuz Mouse",
     )
     assert result.matched
+
+
+# --- gerçek site: kitapyurdu.com --------------------------------------------
+
+def kitapyurdu_config() -> SiteConfig:
+    """config/sites/kitapyurdu.yaml ile aynı seçiciler."""
+    return SiteConfig.from_dict({
+        "slug": "kitapyurdu",
+        "name": "Kitapyurdu",
+        "base_url": "https://www.kitapyurdu.com",
+        "currency": "TRY",
+        "selectors": {
+            "item": "div.ky-product",
+            "title": "span.ky-product-title",
+            "url": "a.ky-product-cover@href",
+            "price": "span.ky-product-price.ky-product-sell-price",
+            "brand": "span.ky-product-author",
+            "availability": "button.ky-product-cta",
+        },
+    })
+
+
+def test_kitapyurdu_parses_real_markup():
+    """Gercek sayfadan alinmis HTML uzerinde calisiyor mu?
+
+    Fixture canli siteden kisaltilarak uretildi. Site yapisini degistirirse
+    bu test kirilir ve seciciler guncellenmesi gerektigini haber verir.
+    """
+    adapter = CssAdapter(kitapyurdu_config(), client=None)
+    html = (FIXTURES / "kitapyurdu_sample.html").read_text(encoding="utf-8")
+
+    items = adapter.parse(html, "https://www.kitapyurdu.com/index.php?route=product/list")
+
+    assert len(items) == 3
+    first = items[0]
+    assert first.title == "Taş Kağıt Makas"
+    assert first.brand == "Alice Feeney"
+    assert first.url.startswith("https://www.kitapyurdu.com/kitap/")
+
+
+def test_kitapyurdu_turkish_price_format():
+    """204,10 TL -> 204.10 TRY (virgul ondalik ayraci)."""
+    adapter = CssAdapter(kitapyurdu_config(), client=None)
+    html = (FIXTURES / "kitapyurdu_sample.html").read_text(encoding="utf-8")
+
+    items = adapter.parse(html, "https://www.kitapyurdu.com/")
+    prices = [(i.price, i.currency) for i in items]
+
+    assert prices[0] == (Decimal("204.10"), "TRY")
+    assert prices[1] == (Decimal("228.20"), "TRY")
+    assert prices[2] == (Decimal("239.96"), "TRY")
+
+
+def test_kitapyurdu_availability_from_cta_button():
+    """'Sepete Ekle' butonu urunun satista oldugunu gosteriyor."""
+    adapter = CssAdapter(kitapyurdu_config(), client=None)
+    html = (FIXTURES / "kitapyurdu_sample.html").read_text(encoding="utf-8")
+
+    items = adapter.parse(html, "https://www.kitapyurdu.com/")
+    assert all(i.availability == Availability.IN_STOCK for i in items)
+
+
+def test_kitapyurdu_yaml_matches_test_config():
+    """YAML dosyasi ile testteki seciciler ayni kalmali."""
+    import yaml
+
+    data = yaml.safe_load(
+        (Path(__file__).parents[1] / "config" / "sites" / "kitapyurdu.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert data["selectors"] == kitapyurdu_config().selectors
+    assert data["enabled"] is False  # kullanim kosullari okunmadan acilmasin
