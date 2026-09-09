@@ -466,3 +466,16 @@ async def test_alert_preview_renders_email(client):
 
     assert response.status_code == 200
     assert "Önizleme Ürünü" in response.json()["html"]
+
+
+async def test_download_header_has_plain_filename(client):
+    """curl -J yalnizca duz `filename=` okuyor; uzun bicim tek basina yetmiyor.
+
+    Sadece filename*= gonderildiginde curl dosyayi URL'nin son parcasiyla
+    ("workbook.xlsx") kaydediyordu.
+    """
+    response = await client.get("/export/products.csv")
+    disposition = response.headers["content-disposition"]
+
+    assert 'filename="priceradar-products' in disposition   # duz bicim
+    assert "filename*=UTF-8''" in disposition                # uzun bicim

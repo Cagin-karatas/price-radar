@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Response
@@ -13,8 +14,20 @@ router = APIRouter(prefix="/export", tags=["disa aktarim"])
 
 
 def _attachment(content: bytes, filename: str, media_type: str) -> Response:
-    # RFC 5987: dosya adinda Turkce karakter varsa bozulmasin
-    disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
+    """Indirme basligi.
+
+    Iki bicim birden gonderiliyor: duz `filename=` ve RFC 5987 `filename*=`.
+    curl'un -J secenegi yalnizca duz bicimi okuyor, uzun bicimi gormezden
+    gelip URL'nin son parcasina dusuyor. Tarayicilar ikisini de anliyor ve
+    varsa `filename*`i tercih ediyor.
+    """
+    ascii_name = unicodedata.normalize("NFKD", filename)
+    ascii_name = ascii_name.encode("ascii", "ignore").decode("ascii") or "export"
+
+    disposition = (
+        f'attachment; filename="{ascii_name}"; '
+        f"filename*=UTF-8''{quote(filename)}"
+    )
     return Response(
         content=content,
         media_type=media_type,
