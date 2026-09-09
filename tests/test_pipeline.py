@@ -435,3 +435,32 @@ async def test_init_db_rejects_outdated_schema(tmp_path):
     assert "alembic upgrade head" in message   # ne yapilacagini soyler
 
     await dispose_db()
+
+
+async def test_explicitly_requested_disabled_site_is_scraped():
+    """`-s slug` ile kapali bir site acikca istendiginde calismali.
+
+    scrape_sites listeyi bir kez daha enabled filtresinden geciriyordu:
+    yukleyici siteyi dogru getiriyor, CLI "1 site kaziniyor" yaziyor, sonra
+    boru hatti sessizce eliyordu. Hata yok, uyari yok, 0 urun.
+    """
+    config = books_config(max_pages=1)
+    config.enabled = False
+
+    client = FakeClient({
+        "page-1.html": (FIXTURES / "books_page1.html").read_text(encoding="utf-8"),
+    })
+
+    items, errors, per_site = await scrape_sites([config], client)
+
+    assert not errors
+    assert per_site["books"] == 3
+    assert len(items) == 3
+
+
+async def test_empty_config_list_is_handled():
+    items, errors, per_site = await scrape_sites([], FakeClient({}))
+
+    assert items == []
+    assert errors == {}
+    assert per_site == {}

@@ -109,7 +109,23 @@ class CssAdapter(Adapter):
         soup = BeautifulSoup(html, "lxml")
         results: list[ScrapedItem] = []
 
-        for node in soup.select(item_selector):
+        nodes = soup.select(item_selector)
+        if not nodes:
+            # Sessiz basarisizlik scraping'in en kotu hata turu: sayfa indi,
+            # ayristirildi, sifir urun cikti ve sistem calisiyor gorundu.
+            # Sayfada hic eslesme yoksa bunu duyurmak gerekiyor.
+            logger.warning(
+                "%s: '%s' seçicisi %s adresinde hiç eşleşme bulamadı "
+                "(%d KB HTML indirildi). Site yapısı değişmiş ya da içerik "
+                "JavaScript ile yükleniyor olabilir.",
+                self.config.slug,
+                item_selector,
+                page_url,
+                len(html) // 1024,
+            )
+            return results
+
+        for node in nodes:
             title = extract(node, selectors.get("title"))
             href = extract(node, selectors.get("url"))
             url = urljoin(page_url, href) if href else page_url

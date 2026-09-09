@@ -473,3 +473,18 @@ def test_kitapyurdu_yaml_matches_test_config():
     )
     assert data["selectors"] == kitapyurdu_config().selectors
     assert data["enabled"] is False  # kullanim kosullari okunmadan acilmasin
+
+
+def test_adapter_warns_when_selector_matches_nothing(caplog):
+    """Sessiz basarisizlik olmamali: sayfa indi ama urun cikmadiysa uyar."""
+    import logging
+
+    adapter = CssAdapter(kitapyurdu_config(), client=None)
+
+    with caplog.at_level(logging.WARNING):
+        items = adapter.parse("<html><body><p>bos sayfa</p></body></html>",
+                              "https://www.kitapyurdu.com/liste")
+
+    assert items == []
+    assert "hiç eşleşme bulamadı" in caplog.text
+    assert "div.ky-product" in caplog.text

@@ -78,14 +78,25 @@ class IngestResult:
 async def scrape_sites(
     configs: list[SiteConfig], client
 ) -> tuple[list[ScrapedItem], dict[str, str], dict[str, int]]:
-    """Tüm siteleri eşzamanlı kazır.
+    """Verilen siteleri eşzamanlı kazır.
 
     `asyncio.gather` ile paralel çalışıyorlar; hız sınırı alan adı başına
     uygulandığından bu tek bir siteyi yormaz, sadece farklı siteleri
     aynı anda gezer.
+
+    Not: burada `enabled` filtresi **uygulanmıyor**. Hangi sitelerin
+    çalışacağına yükleyici karar veriyor (`load_enabled_configs`); kullanıcı
+    `-s slug` ile kapalı bir siteyi açıkça istediğinde boru hattının o kararı
+    ikinci kez sorgulaması, isteğin sessizce yutulmasına yol açıyordu.
     """
-    enabled = [config for config in configs if config.enabled]
-    adapters = [build_adapter(config, client) for config in enabled]
+    if not configs:
+        return [], {}, {}
+
+    disabled = [c.slug for c in configs if not c.enabled]
+    if disabled:
+        logger.info("Kapalı olduğu halde açıkça istenen site: %s", ", ".join(disabled))
+
+    adapters = [build_adapter(config, client) for config in configs]
 
     results = await asyncio.gather(*(adapter.safe_scrape() for adapter in adapters))
 
@@ -93,7 +104,7 @@ async def scrape_sites(
     errors: dict[str, str] = {}
     per_site: dict[str, int] = {}
 
-    for config, (site_items, error) in zip(enabled, results):
+    for config, (site_items, error) in zip(configs, results):
         per_site[config.slug] = len(site_items)
         if error:
             errors[config.slug] = str(error)
